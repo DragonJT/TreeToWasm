@@ -93,6 +93,40 @@ class Function(uint ID, Valtype returnType, Valtype[] parameters)
         locals.Add(WasmEmitter.Local(type, count));
     }
 
+    public void Block(Valtype valtype)
+    {
+        code.AddRange((byte)Opcode.block, (byte)valtype);
+    }
+
+    public void Loop(Valtype valtype)
+    {
+        code.AddRange((byte)Opcode.loop, (byte)valtype);
+    }
+    
+    public void End()
+    {
+        code.Add((byte)Opcode.end);
+    }
+
+    public void Br(uint id)
+    {
+        code.AddRange([(byte)Opcode.br, .. WasmEmitter.UnsignedLEB128(id)]);
+    }
+
+    public void BrIf(uint id)
+    {
+        code.AddRange([(byte)Opcode.br_if, .. WasmEmitter.UnsignedLEB128(id)]);
+    }
+
+    public void I32Eqz()
+    {
+        code.Add((byte)Opcode.i32_eqz);
+    }
+
+    public void I32Lts()
+    {
+        code.Add((byte)Opcode.i32_lt_s);
+    }
     public void Call(uint id)
     {
         code.AddRange([(byte)Opcode.call, .. WasmEmitter.UnsignedLEB128(id)]);

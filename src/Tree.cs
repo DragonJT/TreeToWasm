@@ -42,11 +42,16 @@ interface IStatement
 class Local(IType type) : IExpression
 {
     public IType type = type;
-    public uint? id;
+    public uint ID
+    {
+        get => id!.Value;
+        set => id = value;
+    } 
+    uint? id;
 
     public void Emit(WasmEmitter.Function function)
     {
-        function.GetLocal(id!.Value);
+        function.GetLocal(ID);
     }
 }
 
@@ -104,7 +109,7 @@ record Var(Local Local, IExpression Expression) : IStatement
     public void Emit(WasmEmitter.Function function)
     {
         Expression.Emit(function);
-        function.SetLocal(Local.id!.Value);
+        function.SetLocal(Local.ID);
     }
 }
 
@@ -127,6 +132,29 @@ record Expr(IExpression Expression) : IStatement
     }
 }
 
+record For(Local Local, IExpression Length, IStatement Statement) : IStatement
+{
+    public void Emit(WasmEmitter.Function function)
+    {
+        function.I32Const(0);
+        function.SetLocal(Local.ID);
+        function.Block(Valtype.Void);
+        function.Loop(Valtype.Void);
+        function.GetLocal(Local.ID);
+        Length.Emit(function);
+        function.I32Lts();
+        function.I32Eqz();
+        function.BrIf(1);
+        Statement.Emit(function);
+        function.GetLocal(Local.ID);
+        function.I32Const(1);
+        function.I32Add();
+        function.SetLocal(Local.ID);
+        function.Br(0);
+        function.End();
+        function.End();
+    }
+}
 
 record Parameter(IType Type, string Name);
 
@@ -180,12 +208,12 @@ class Function : IFunction
     protected WasmEmitter.Function Emit(WasmEmitter.Function f)
     {
         uint pID = 0;
-        foreach (var p in parameters) { p.id = pID; pID++; }
+        foreach (var p in parameters) { p.ID = pID; pID++; }
 
         var i32Locals = locals.Where(l => l.type.Valtype == Valtype.I32).ToArray();
         var f32Locals = locals.Where(l => l.type.Valtype == Valtype.F32).ToArray();
-        foreach (var l in i32Locals) { l.id = pID; pID++; }
-        foreach (var l in f32Locals) { l.id = pID; pID++; }
+        foreach (var l in i32Locals) { l.ID = pID; pID++; }
+        foreach (var l in f32Locals) { l.ID = pID; pID++; }
         if (i32Locals.Length > 0) f.AddLocals(Valtype.I32, (uint)i32Locals.Length);
         if (f32Locals.Length > 0) f.AddLocals(Valtype.F32, (uint)f32Locals.Length);
 

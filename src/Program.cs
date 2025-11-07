@@ -10,10 +10,11 @@ static class Program
 
         var main = tree.AddExportFunction("Main", new IntType(), []);
         var a = new Local(new IntType());
-        main.Init([a], new Block(
+        var i = new Local(new IntType());
+        main.Init([a, i], new Block(
         [
             new Var(a, new Mul(new Int(4), new Int(6))),
-            new Expr(new Call(printi, [a])),
+            new For(i, new Int(10), new Expr(new Call(printi, [i]))),
             new Return(new Add(a, new Int(6)))
         ]));
 
