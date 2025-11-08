@@ -21,9 +21,13 @@ record Add(IExpression Left, IExpression Right) : IExpression;
 
 record Mul(IExpression Left, IExpression Right) : IExpression;
 
-record Call(IFunction Function, IExpression[] Args) : IExpression;
+record Call(IFunction Function, IExpression[] Args) : IExpression, IStatement;
 
-record Int(int Value):IExpression;
+record Int(int Value) : IExpression;
+
+record Increment(Local Local) : IStatement;
+
+record Assign(Local Local, IExpression Expression) : IStatement;
 
 record Return(IExpression Expression) : IStatement;
 
@@ -43,9 +47,9 @@ class TreeEmitter : WasmEmitter
         {
             return [new(Opcode.i32_const, i.Value)];
         }
-        else if (expression is Call c)
+        else if(expression is Local local)
         {
-            return [.. c.Args.SelectMany(GetCode), new(Opcode.call, c.Function)];
+            return [new(Opcode.get_local, local)];
         }
         else
         {
@@ -63,6 +67,18 @@ class TreeEmitter : WasmEmitter
                 code.AddRange(GetCode(s));
             }
             return [.. code];
+        }
+        else if (statement is Call call)
+        {
+            return [.. call.Args.SelectMany(GetCode), new(Opcode.call, call.Function)];
+        }
+        else if (statement is Assign assign)
+        {
+            return [.. GetCode(assign.Expression), new(Opcode.set_local, assign.Local)];
+        }
+        else if (statement is Increment increment)
+        {
+            return [new(Opcode.get_local, increment.Local), new(Opcode.i32_const, 1), new (Opcode.i32_add), new(Opcode.set_local, increment.Local)];
         }
         else if (statement is Return rtn)
         {

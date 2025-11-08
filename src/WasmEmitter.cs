@@ -1,6 +1,5 @@
 namespace WasmEmitter;
 
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 enum Opcode
@@ -86,7 +85,7 @@ record Code(Opcode Opcode, object? Value=null);
 
 record Parameter(IType Type, string Name);
 
-record Local(IType Type);
+record Local(IType Type) : IExpression;
 
 record ImportFunction(string Name, IType ReturnType, Parameter[] Parameters, string Code) : IFunction;
 
@@ -292,7 +291,15 @@ abstract class WasmEmitter
             }
             else if (c.Opcode == Opcode.call)
             {
-                codeBytes.AddRange([(byte)Opcode.call, ..UnsignedLEB128(functionIDs[(IFunction)c.Value!])]);
+                codeBytes.AddRange([(byte)Opcode.call, .. UnsignedLEB128(functionIDs[(IFunction)c.Value!])]);
+            }
+            else if (c.Opcode == Opcode.get_local)
+            {
+                codeBytes.AddRange([(byte)Opcode.get_local, .. UnsignedLEB128(localIDs[(Local)c.Value!])]);
+            }
+            else if (c.Opcode == Opcode.set_local)
+            {
+                codeBytes.AddRange([(byte)Opcode.set_local, .. UnsignedLEB128(localIDs[(Local)c.Value!])]);
             }
             else
             {

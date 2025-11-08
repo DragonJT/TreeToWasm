@@ -7,9 +7,12 @@ static class Program
         var tree = new TreeEmitter();
         var printI = tree.Add(new ImportFunction("PrintI", new VoidType(), [new(new IntType(), "i")], "console.log(i);"));
         var main = tree.Add(new ExportFunction("Main", new IntType(), []));
+        var i = new Local(new IntType());
         main.Statement = new Block([
-            new Expr(new Call(printI, [new Int(2)])),
-            new Return(new Int(4))
+            new Assign(i, new Int(4)),
+            new Call(printI, [i]),
+            new Increment(i),
+            new Return(i)
         ]);
 
         var html = tree.Emit(true);
