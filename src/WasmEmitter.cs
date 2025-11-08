@@ -1,5 +1,6 @@
 namespace WasmEmitter;
 
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 enum Opcode
@@ -74,103 +75,31 @@ enum ExportType
     Global = 0x03
 }
 
-record Parameter(Valtype Type, string Name);
-
-record Local(Valtype Type);
-
-record ImportFunction(uint ID, string Name, Valtype ReturnType, Parameter[] Parameters, string Code);
-
-class Function(uint ID, Valtype returnType, Valtype[] parameters)
+interface IType
 {
-    public readonly uint ID = ID;
-    public Valtype returnType = returnType;
-    public Valtype[] parameters = parameters;
-    List<byte[]> locals = [];
-    List<byte> code = [];
-
-    public void AddLocals(Valtype type, uint count)
-    {
-        locals.Add(WasmEmitter.Local(type, count));
-    }
-
-    public void Block(Valtype valtype)
-    {
-        code.AddRange((byte)Opcode.block, (byte)valtype);
-    }
-
-    public void Loop(Valtype valtype)
-    {
-        code.AddRange((byte)Opcode.loop, (byte)valtype);
-    }
-    
-    public void End()
-    {
-        code.Add((byte)Opcode.end);
-    }
-
-    public void Br(uint id)
-    {
-        code.AddRange([(byte)Opcode.br, .. WasmEmitter.UnsignedLEB128(id)]);
-    }
-
-    public void BrIf(uint id)
-    {
-        code.AddRange([(byte)Opcode.br_if, .. WasmEmitter.UnsignedLEB128(id)]);
-    }
-
-    public void I32Eqz()
-    {
-        code.Add((byte)Opcode.i32_eqz);
-    }
-
-    public void I32Lts()
-    {
-        code.Add((byte)Opcode.i32_lt_s);
-    }
-    public void Call(uint id)
-    {
-        code.AddRange([(byte)Opcode.call, .. WasmEmitter.UnsignedLEB128(id)]);
-    }
-
-    public void GetLocal(uint id)
-    {
-        code.AddRange([(byte)Opcode.get_local, .. WasmEmitter.UnsignedLEB128(id)]);
-    }
-    
-    public void SetLocal(uint id)
-    {
-        code.AddRange([(byte)Opcode.set_local, .. WasmEmitter.UnsignedLEB128(id)]);
-    }
-
-    public void I32Const(int i)
-    {
-        code.AddRange([(byte)Opcode.i32_const, .. WasmEmitter.SignedLEB128(i)]);
-    }
-
-    public void Ret()
-    {
-        code.Add((byte)Opcode.ret);
-    }
-
-    public void I32Add()
-    {
-        code.Add((byte)Opcode.i32_add);
-    }
-
-    public void I32Mul()
-    {
-        code.Add((byte)Opcode.i32_mul);
-    }
-
-    public byte[] CodeSection()
-    {
-        return WasmEmitter.Vector([.. WasmEmitter.Vector([.. locals]), .. code, (byte)Opcode.end]);
-    }
+    Valtype Valtype { get; }
 }
 
-class ExportFunction(uint ID, string name, Valtype returnType, Valtype[] parameters) : Function(ID, returnType, parameters)
+interface IFunction { }
+
+record Code(Opcode Opcode, object? Value=null);
+
+record Parameter(IType Type, string Name);
+
+record Local(IType Type);
+
+record ImportFunction(string Name, IType ReturnType, Parameter[] Parameters, string Code) : IFunction;
+
+interface IStatement { }
+
+record Function(IType ReturnType, Local[] Parameters) : IFunction
 {
-    public string name = name;
+    public IStatement? Statement = null;
+}
+
+record ExportFunction(string Name, IType ReturnType, Local[] Parameters) : IFunction
+{
+    public IStatement? Statement = null;
 }
 
 static class Printer
@@ -202,32 +131,46 @@ static class Printer
     }
 }
 
-static class WasmEmitter
+abstract class WasmEmitter
 {
-    public static Valtype GetValtype(string type)
+    List<ImportFunction> importFunctions = [];
+    List<Function> functions = [];
+    List<ExportFunction> exportFunctions = [];
+    Dictionary<IFunction, uint> functionIDs = [];
+
+    public ImportFunction Add(ImportFunction importFunction)
     {
-        return type switch
-        {
-            "int" => Valtype.I32,
-            "float" => Valtype.F32,
-            "void" => Valtype.Void,
-            _ => throw new Exception($"Unexpected type :{type}"),
-        };
+        importFunctions.Add(importFunction);
+        return importFunction;
     }
 
-    public const byte emptyArray = 0x0;
-    public const byte functionType = 0x60;
+    public Function Add(Function function)
+    {
+        functions.Add(function);
+        return function;
+    }
 
-    public static byte[] MagicModuleHeader => [0x00, 0x61, 0x73, 0x6d];
+    public ExportFunction Add(ExportFunction exportFunction)
+    {
+        exportFunctions.Add(exportFunction);
+        return exportFunction;
+    }
 
-    public static byte[] ModuleVersion => [0x01, 0x00, 0x00, 0x00];
+    protected abstract Code[] GetCode(IStatement statement);
 
-    public static byte[] Ieee754(float value)
+    const byte emptyArray = 0x0;
+    const byte functionType = 0x60;
+
+    static byte[] MagicModuleHeader => [0x00, 0x61, 0x73, 0x6d];
+
+    static byte[] ModuleVersion => [0x01, 0x00, 0x00, 0x00];
+
+    static byte[] Ieee754(float value)
     {
         return BitConverter.GetBytes(value);
     }
 
-    public static byte[] SignedLEB128(int value)
+    static byte[] SignedLEB128(int value)
     {
         List<byte> bytes = [];
         bool more = true;
@@ -246,7 +189,7 @@ static class WasmEmitter
         return bytes.ToArray();
     }
 
-    public static byte[] UnsignedLEB128(uint value)
+    static byte[] UnsignedLEB128(uint value)
     {
         List<byte> bytes = [];
         do
@@ -263,7 +206,7 @@ static class WasmEmitter
         return [.. bytes];
     }
 
-    public static byte[] String(string value)
+    static byte[] String(string value)
     {
         List<byte> bytes = [.. UnsignedLEB128((uint)value.Length)];
         foreach (var v in value)
@@ -273,27 +216,27 @@ static class WasmEmitter
         return [.. bytes];
     }
 
-    public static byte[] Vector(byte[][] vector)
+    static byte[] Vector(byte[][] vector)
     {
         return [.. UnsignedLEB128((uint)vector.Length), .. vector.SelectMany(b => b).ToArray()];
     }
 
-    public static byte[] Vector(byte[] vector)
+    static byte[] Vector(byte[] vector)
     {
         return [.. UnsignedLEB128((uint)vector.Length), .. vector];
     }
 
-    public static byte[] Local(Valtype valtype, uint count)
+    static byte[] Local(Valtype valtype, uint count)
     {
         return [.. UnsignedLEB128(count), (byte)valtype];
     }
 
-    public static byte[] Section(SectionType section, byte[][] bytes)
+    static byte[] Section(SectionType section, byte[][] bytes)
     {
         return [(byte)section, .. Vector(Vector(bytes))];
     }
 
-    public static byte[] Return(Valtype type)
+    static byte[] Return(Valtype type)
     {
         if (type == Valtype.Void)
         {
@@ -305,13 +248,69 @@ static class WasmEmitter
         }
     }
 
-    public static string Emit(ImportFunction[] importFunctions, Function[] functions, bool memory)
+    byte[] EmitCode(Local[] parameters, IStatement statement)
     {
-        List<byte[]> codeSection = [];
-        foreach (var f in functions)
+        HashSet<Local> i32Locals = [];
+        HashSet<Local> f32Locals = [];
+
+        void AddLocal(Local local)
         {
-            codeSection.Add(f.CodeSection());
+            if (local.Type.Valtype == Valtype.I32) i32Locals.Add(local);
+            else if (local.Type.Valtype == Valtype.F32) f32Locals.Add(local);
+            else throw new Exception("Error expecting i32 or f32");
         }
+
+        var code = GetCode(statement);
+        foreach (var c in code)
+        {
+            if (c.Opcode == Opcode.get_local) AddLocal((Local)c.Value!);
+            if (c.Opcode == Opcode.set_local) AddLocal((Local)c.Value!);
+        }
+        
+        Dictionary<Local, uint> localIDs = [];
+        uint lid = 0;
+
+        void AddLocalID(Local local)
+        {
+            localIDs.Add(local, lid); 
+            lid++;
+        }
+        foreach (var p in parameters) AddLocalID(p);
+        foreach (var l in i32Locals) AddLocalID(l);
+        foreach (var l in f32Locals) AddLocalID(l);
+
+        List<byte[]> localBytes = [];
+        if (i32Locals.Count > 0) localBytes.Add(Local(Valtype.I32, (uint)i32Locals.Count));
+        if (f32Locals.Count > 0) localBytes.Add(Local(Valtype.F32, (uint)f32Locals.Count));
+
+        List<byte> codeBytes = [];
+        foreach(var c in code)
+        {
+            if (c.Opcode == Opcode.i32_const)
+            {
+                codeBytes.AddRange([(byte)Opcode.i32_const, .. SignedLEB128((int)c.Value!)]);
+            }
+            else if (c.Opcode == Opcode.call)
+            {
+                codeBytes.AddRange([(byte)Opcode.call, ..UnsignedLEB128(functionIDs[(IFunction)c.Value!])]);
+            }
+            else
+            {
+                codeBytes.Add((byte)c.Opcode);
+            } 
+        }
+        return Vector([.. Vector([.. localBytes]), .. codeBytes, (byte)Opcode.end]);
+    }
+
+    public string Emit(bool memory)
+    {
+        foreach (var f in importFunctions) functionIDs.Add(f, (uint)functionIDs.Count);
+        foreach (var f in functions) functionIDs.Add(f, (uint)functionIDs.Count);
+        foreach (var f in exportFunctions) functionIDs.Add(f, (uint)functionIDs.Count);
+
+        List<byte[]> codeSection = [];
+        foreach (var f in functions) codeSection.Add(EmitCode(f.Parameters, f.Statement!));
+        foreach (var f in exportFunctions) codeSection.Add(EmitCode(f.Parameters, f.Statement!));
 
         List<byte[]> importSection = [];
         foreach (var f in importFunctions)
@@ -320,7 +319,7 @@ static class WasmEmitter
                 ..String("env"),
                 ..String(f.Name),
                 (byte)ExportType.Func,
-                ..UnsignedLEB128(f.ID)
+                ..UnsignedLEB128(functionIDs[f])
             ]);
         }
 
@@ -340,34 +339,32 @@ static class WasmEmitter
         List<byte[]> typeSection = [];
         foreach (var f in importFunctions)
         {
-            typeSection.Add([
-                functionType,
-                ..Vector(f.Parameters.Select(p=>(byte)p.Type).ToArray()),
-                ..Return(f.ReturnType)
-            ]);
+            typeSection.Add([functionType, .. Vector(f.Parameters.Select(p => (byte)p.Type.Valtype).ToArray()), .. Return(f.ReturnType.Valtype)]);
         }
         foreach (var f in functions)
         {
-            typeSection.Add([
-                functionType,
-                ..Vector(f.parameters.Select(p=>(byte)p).ToArray()),
-                ..Return(f.returnType)
-            ]);
+            typeSection.Add([functionType, .. Vector(f.Parameters.Select(p => (byte)p.Type.Valtype).ToArray()), .. Return(f.ReturnType.Valtype)]);
+        }
+        foreach (var f in exportFunctions)
+        {
+            typeSection.Add([functionType, .. Vector(f.Parameters.Select(p => (byte)p.Type.Valtype).ToArray()), .. Return(f.ReturnType.Valtype)]);
         }
 
         List<byte[]> funcSection = [];
         foreach (var f in functions)
         {
-            funcSection.Add(UnsignedLEB128(f.ID));
+            funcSection.Add(UnsignedLEB128(functionIDs[f]));
+        }
+        foreach (var f in exportFunctions)
+        {
+            funcSection.Add(UnsignedLEB128(functionIDs[f]));
         }
 
         List<byte[]> exportSection = [];
-        foreach (var f in functions.OfType<ExportFunction>())
+        foreach (var f in exportFunctions)
         {
-            exportSection.Add([.. String(f.name), (byte)ExportType.Func, .. UnsignedLEB128(f.ID)]);
+            exportSection.Add([.. String(f.Name), (byte)ExportType.Func, .. UnsignedLEB128(functionIDs[f])]);
         }
-
-
 
         byte[] wasm = [
             .. MagicModuleHeader,

@@ -1,24 +1,18 @@
-﻿using Tree;
+﻿using WasmEmitter;
 
 static class Program
 {
     static void Main()
     {
-        var tree = new Tree.Tree();
+        var tree = new TreeEmitter();
+        var printI = tree.Add(new ImportFunction("PrintI", new VoidType(), [new(new IntType(), "i")], "console.log(i);"));
+        var main = tree.Add(new ExportFunction("Main", new IntType(), []));
+        main.Statement = new Block([
+            new Expr(new Call(printI, [new Int(2)])),
+            new Return(new Int(4))
+        ]);
 
-        var printi = tree.AddImportFunction("PrintI", new VoidType(), [new(new IntType(), "i")], "console.log(i);");
-
-        var main = tree.AddExportFunction("Main", new IntType(), []);
-        var a = new Local(new IntType());
-        var i = new Local(new IntType());
-        main.Init([a, i], new Block(
-        [
-            new Var(a, new Mul(new Int(4), new Int(6))),
-            new For(i, new Int(10), new Expr(new Call(printi, [i]))),
-            new Return(new Add(a, new Int(6)))
-        ]));
-
-        var html = tree.Emit();
+        var html = tree.Emit(true);
         File.WriteAllText("index.html", html);
     }
 }
