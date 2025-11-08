@@ -59,10 +59,10 @@ class TreeEmitter : WasmEmitter
 
     protected override Code[] GetCode(IStatement statement)
     {
-        if (statement is Block blocK)
+        if (statement is Block block)
         {
             List<Code> code = [];
-            foreach (var s in blocK.Statements)
+            foreach (var s in block.Statements)
             {
                 code.AddRange(GetCode(s));
             }
